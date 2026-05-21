@@ -2,6 +2,15 @@ from fastapi import APIRouter
 from bson import ObjectId
 from app.models.school_model import School
 from app.database.connection import database
+from bson import ObjectId
+from fastapi import HTTPException
+from app.services.school_service import (
+    create_school,
+    get_all_schools,
+    get_school_by_id,
+    update_school_by_id,
+    delete_school_by_id
+)
 
 router = APIRouter()
 
@@ -10,75 +19,92 @@ async def add_school(school: School):
 
     school_data = school.dict()
 
-    result = await database.schools.insert_one(school_data)
+    school_id = await create_school(school_data)
 
     return {
         "message": "School added successfully",
-        "id": str(result.inserted_id)
+        "id": school_id
     }
 
 @router.get("/schools")
 async def get_schools():
 
-    schools = []
+    schools = await get_all_schools()
 
-    async for school in database.schools.find():
-
-        school["_id"] = str(school["_id"])
-
-        schools.append(school)
-
-    return {
-        "schools": schools
-    }
+    return schools
 
 @router.get("/school/{school_id}")
 async def get_school(school_id: str):
 
-    school = await database.schools.find_one(
-        {"_id": ObjectId(school_id)}
-    )
+    try:
 
-    if school:
+        school = await get_school_by_id(school_id)
 
-        school["_id"] = str(school["_id"])
+        if school:
 
-        return school
+            return school
 
-    return {
-        "message": "School not found"
-    }
+        raise HTTPException(
+            status_code=404,
+            detail="School not found"
+        )
+
+    except:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid school ID"
+        )
 @router.put("/update-school/{school_id}")
 async def update_school(school_id: str, school: School):
 
-    updated_data = school.dict()
+    try:
 
-    result = await database.schools.update_one(
-        {"_id": ObjectId(school_id)},
-        {"$set": updated_data}
-    )
+        updated_data = school.dict()
 
-    if result.modified_count == 1:
-        return {
-            "message": "School updated successfully"
-        }
+        updated = await update_school_by_id(
+            school_id,
+            updated_data
+        )
 
-    return {
-        "message": "School not found or no changes made"
-    }
+        if updated == 1:
+
+            return {
+                "message": "School updated successfully"
+            }
+
+        raise HTTPException(
+            status_code=404,
+            detail="School not found"
+        )
+
+    except:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid school ID"
+        )
 @router.delete("/delete-school/{school_id}")
 async def delete_school(school_id: str):
 
-    result = await database.schools.delete_one(
-        {"_id": ObjectId(school_id)}
-    )
+    try:
 
-    if result.deleted_count == 1:
+        deleted = await delete_school_by_id(school_id)
 
-        return {
-            "message": "School deleted successfully"
-        }
+        if deleted == 1:
 
-    return {
-        "message": "School not found"
-    }
+            return {
+                "message": "School deleted successfully"
+            }
+
+        raise HTTPException(
+            status_code=404,
+            detail="School not found"
+        )
+
+    except:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid school ID"
+        )
