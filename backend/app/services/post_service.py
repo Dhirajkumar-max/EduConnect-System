@@ -59,3 +59,39 @@ async def delete_post(post_id):
     )
 
     return result
+
+async def get_feed_posts(following_list):
+
+    posts = await database.posts.find(
+        {
+            "created_by": {
+                "$in": following_list
+            }
+        }
+    ).to_list(100)
+
+    return posts
+
+async def get_posts_by_username(
+    username
+):
+
+    posts = await database.posts.find(
+        {
+            "username": username
+        }
+    ).to_list(100)
+
+    return posts
+
+async def get_post_comments(
+    post_id
+):
+
+    post = await database.posts.find_one(
+        {
+            "_id": ObjectId(post_id)
+        }
+    )
+
+    return post.get("comments", [])

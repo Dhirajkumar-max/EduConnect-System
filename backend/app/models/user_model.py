@@ -11,6 +11,8 @@ class UserSignup(BaseModel):
 
     email: EmailStr
 
+    username: str
+
     password: str = Field(
         ...,
         min_length=6
