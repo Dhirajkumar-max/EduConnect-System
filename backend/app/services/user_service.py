@@ -1,4 +1,5 @@
 from app.database.connection import database
+from datetime import datetime, timezone
 
 
 async def create_user(user_data):
@@ -151,7 +152,8 @@ async def send_message(
     message_data = {
         "sender": sender,
         "receiver": receiver,
-        "message": message
+        "message": message,
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
 
     result = await database.messages.insert_one(
@@ -166,9 +168,12 @@ async def get_my_messages(
 
     messages = await database.messages.find(
         {
-            "receiver": email
+            "$or": [
+                {"receiver": email},
+                {"sender": email}
+            ]
         }
-    ).to_list(100)
+    ).sort("created_at", 1).to_list(100)
 
     return messages
 

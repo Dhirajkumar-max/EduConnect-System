@@ -8,9 +8,7 @@ from fastapi.security import HTTPBearer
 from jose import jwt, JWTError
 
 
-SECRET_KEY = "mysecretkey"
-
-ALGORITHM = "HS256"
+from app.utils.jwt_handler import SECRET_KEY, ALGORITHM
 
 security = HTTPBearer()
 

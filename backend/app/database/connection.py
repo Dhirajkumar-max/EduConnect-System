@@ -5,11 +5,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 MONGO_URL = os.getenv("MONGO_URL")
-DATABASE_NAME = os.getenv("DATABASE_NAME")
+DATABASE_NAME = os.getenv("DATABASE_NAME", "educonnect")
 
-print("Mongo URL:", MONGO_URL)
-print("Database Name:", DATABASE_NAME)
+if not MONGO_URL:
+    raise RuntimeError("Set MONGO_URL to your MongoDB connection URI.")
 
-client = AsyncIOMotorClient(MONGO_URL)
+client = AsyncIOMotorClient(MONGO_URL, serverSelectionTimeoutMS=5000)
 
 database = client[DATABASE_NAME]

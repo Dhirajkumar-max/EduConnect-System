@@ -1,7 +1,13 @@
+import os
 from jose import jwt
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 
-SECRET_KEY = "mysecretkey"
+load_dotenv()
+
+SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
+if len(SECRET_KEY) < 32:
+    raise RuntimeError("Set JWT_SECRET_KEY to a random secret of at least 32 characters.")
 
 ALGORITHM = "HS256"
 

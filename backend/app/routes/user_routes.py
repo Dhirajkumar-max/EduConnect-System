@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from datetime import datetime, timezone
+from bson import ObjectId
 from app.models.course_model import CourseModel
 from fastapi import UploadFile, File
 import cloudinary.uploader
@@ -16,7 +18,8 @@ from app.utils.auth import (
     student_only,
     school_only,
     admin_only,
-    get_current_user
+    get_current_user,
+    verify_token
 )
 
 from app.models.user_model import (
@@ -77,13 +80,14 @@ from app.models.post_model import PostCreate
 from app.services.post_service import (
     create_post,
     get_all_posts,
-    like_post,
+    toggle_like,
     comment_on_post,
     delete_post,
     get_feed_posts,
     get_posts_by_username,
     get_post_comments
 )
+from app.utils.realtime import realtime
 
 router = APIRouter()
 
@@ -367,6 +371,19 @@ async def create_new_post(
         "created_by": user["email"],
         "role": user["role"]
     }
+    audience_map = {
+        "community": ["student", "teacher", "school", "admin"],
+        "students": ["student", "admin"],
+        "teachers": ["teacher", "admin"],
+        "schools": ["school", "admin"],
+    }
+    post_data.update({
+        "visible_to": audience_map[post.audience],
+        "audience": post.audience,
+        "liked_by": [],
+        "comments": [],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
 
     post_id = await create_post(
         post_data
@@ -378,15 +395,16 @@ async def create_new_post(
     }
 
 @router.get("/all-posts")
-async def all_posts():
+async def all_posts(user = Depends(get_current_user)):
 
-    posts = await get_all_posts()
+    posts = await get_all_posts(user["role"])
 
     clean_posts = []
 
     for post in posts:
 
         clean_posts.append({
+            "id": str(post["_id"]),
             "title": post.get("title"),
             "content": post.get("content"),
             "image_url": post.get("image_url"),
@@ -394,7 +412,10 @@ async def all_posts():
             "created_by": post.get("created_by"),
             "role": post.get("role"),
             "likes": post.get("likes", 0),
-            "comments": post.get("comments", [])
+            "comments": post.get("comments", []),
+            "audience": post.get("audience", "community"),
+            "created_at": post.get("created_at"),
+            "has_liked": user["email"] in post.get("liked_by", [])
             })
 
     return {
@@ -403,12 +424,18 @@ async def all_posts():
     }
 
 @router.post("/like-post/{post_id}")
-async def like_a_post(post_id: str):
+async def like_a_post(post_id: str, user = Depends(get_current_user)):
 
-    await like_post(post_id)
+    try:
+        liked = await toggle_like(post_id, user["email"])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid post ID")
+    if liked is None:
+        raise HTTPException(status_code=404, detail="Post not found")
 
     return {
-        "message": "Post Liked Successfully"
+        "message": "Post liked" if liked else "Like removed",
+        "liked": liked
     }
 
 @router.post("/comment-post/{post_id}")
@@ -419,8 +446,10 @@ async def comment_post(
 ):
 
     comment_data = {
+        "id": str(ObjectId()),
         "comment": comment,
-        "commented_by": user["email"]
+        "commented_by": user["email"],
+        "created_at": datetime.now(timezone.utc).isoformat()
     }
 
     await comment_on_post(
@@ -430,15 +459,6 @@ async def comment_post(
 
     return {
         "message": "Comment Added Successfully"
-    }
-
-@router.delete("/delete-post/{post_id}")
-async def remove_post(post_id: str):
-
-    await delete_post(post_id)
-
-    return {
-        "message": "Post Deleted Successfully"
     }
 
 @router.post("/follow/{email}")
@@ -455,6 +475,7 @@ async def follow(
     email,
     f"{user['email']} started following you"
     )
+    await realtime.send(email, "notification", {"message": f"{user['email']} started following you"})
 
     return {
         "message": f"You are now following {email}"
@@ -671,6 +692,10 @@ async def send_message_route(
         data.receiver_email,
         data.message
     )
+    payload = {"sender": user["email"], "receiver": data.receiver_email, "message": data.message}
+    await realtime.send(data.receiver_email, "message", payload)
+    await add_notification(data.receiver_email, f"New message from {user['email']}")
+    await realtime.send(data.receiver_email, "notification", {"message": f"New message from {user['email']}"})
 
     return {
         "message": "Message sent successfully"
@@ -734,6 +759,26 @@ async def set_online(
     return {
         "message": "You are now online"
     }
+
+
+@router.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    try:
+        user = verify_token(token)
+    except Exception:
+        await websocket.close(code=1008)
+        return
+    email = user.get("email")
+    if not email:
+        await websocket.close(code=1008)
+        return
+    await realtime.connect(email, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        realtime.disconnect(email, websocket)
 
 @router.get("/online-users")
 async def online_users():
@@ -828,6 +873,7 @@ async def all_courses():
     for course in courses:
 
         clean_courses.append({
+            "id": str(course["_id"]),
             "title": course.get("title"),
             "description": course.get("description"),
             "category": course.get("category"),

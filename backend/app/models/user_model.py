@@ -21,8 +21,7 @@ class UserSignup(BaseModel):
     role: Literal[
         "student",
         "teacher",
-        "school",
-        "admin"
+        "school"
     ]
 
 
